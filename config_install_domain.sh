@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-SCRIPT_PYTHON=install_domain_weblogic.py
+SCRIPT_PYTHON=script_domain_eai.py
 PROPERTIES=domain_eai.properties
 DOMAIN_NAME=PostventaEAI_001
 ARCHIVO=_WLS_ADMINSERVER000000.DAT
@@ -35,9 +35,8 @@ error_instalacion_dominio(){
 
 echo '===== Creación de la carpeta script ====='
 
-cd "$DOMAINS_DIR" || error_acceso_directorio "No se pudo acceder al directorio: ${LINENO}"
-
 mkdir -p "$SCRIPT_DIR" || error_creacion_directorio
+
 echo 'Directorio creado exitosamente'
 
 echo '===== Copiando los archivos subidos ====='
@@ -58,15 +57,19 @@ echo '===== Instalando el dominio ====='
 java weblogic.WLST "$SCRIPT_DIR/$SCRIPT_PYTHON"
 
 
-echo '==== Eliminación del proceso _WLS_ADMINSERVER.DAT'
+echo '==== Eliminación del proceso _WLS_ADMINSERVER.DAT ===='
 
 cd "$DOMAINS_DIR/$DOMAIN_NAME/servers/AdminServer/data/store/default" || error_acceso_directorio "No se pudo acceder al directorio: ${LINENO}"
 
-while :; do
+
+PID=123
+
+while [ -n "$PID" ]; do #Si PID no es vacio , entonces
     PID=$(lsof | grep "$ARCHIVO" | awk '{print $2}')
-    if [ -n "$PID" ]; then
+    if [ -n "$PID" ]; then #Si PID no es vacio , entonces matamos
         echo 'Proceso encontrado. Matando proceso......'
-        kill -9 "$PID"
+        kill -9 $PID
+        #break
     else
         echo 'No se encontraron procesos. Continuando...'
         break
@@ -83,11 +86,11 @@ echo 'Directorio creado exitosamente'
 cd security || error_acceso_directorio "No se pudo acceder al directorio: ${LINENO}"
 
 touch boot.properties
-echo -e "$USERNAME" > boot.properties
-echo -e "$PASSWORD" >> boot.properties
+echo -e "username=$USERNAME" > boot.properties
+echo -e "password=$PASSWORD" >> boot.properties
 
-cd ../..
+cd "$DOMAINS_DIR/$DOMAIN_NAME"
 
-./startWeblogic.sh & tail -f nohup.out
+./startWebLogic.sh & tail -f nohup.out
 
 echo '==== Instalación exitosa ===='
