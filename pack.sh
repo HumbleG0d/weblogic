@@ -3,6 +3,7 @@
 #Variables
 DOMAIN_NAME=PostventaEAI_001
 JAR_FILE_NAME=PostventaEAI_001.jar
+UNPACK_FILE=unpack.sh
 COMMON_DIR="/u01/oracle/product/wls12214/oracle_common/common/bin"
 DOMAIN_DIR="/u01/oracle/domains"
 NODE_USER=
@@ -33,29 +34,29 @@ deploy_to_node() {
     echo "[$(date '+%H:%M:%S')] Procesando nodo: $NODE_IP" | tee -a $LOG_FILE
     
     echo "==== Transfiriendo pack al nodo $NODE_IP ====" | tee -a $LOG_FILE
-    scp -o StrictHostKeyChecking=no \
-        "/home/weblogic/$JAR_FILE_NAME" \
-        "$NODE_USER@$NODE_IP:/home/weblogic/" || {
-        echo "ERROR: Falló SCP a $NODE_IP" | tee -a $LOG_FILE
-        return 1
-    }
+
+   ssh -tt -o StrictHostKeyChecking=no $NODE_USER@$NODE_IP << EOF
+    echo "Autenticación exitosa en $NODE_IP"
+
+    # Copiando archivos
+    scp -o StrictHostKeyChecking=no "/home/weblogic/$JAR_FILE_NAME" "/home/weblogic/"
+    scp -o StrictHostKeyChecking=no "/home/weblogic/$UNPACK_FILE" "/home/weblogic/"
 
     # Validar transferencia
-    ssh -o StrictHostKeyChecking=no $NODE_USER@$NODE_IP \
-        "[ -f \"/home/weblogic/$JAR_FILE_NAME\" ]" || {
-        echo "ERROR: Archivo no llegó a $NODE_IP" | tee -a $LOG_FILE
-        return 1
+    if [ ! -f "/home/weblogic/$JAR_FILE_NAME" ]; then
+        echo "ERROR: Archivo no llegó a $NODE_IP"
+        exit 1
+    fi
+
+    # Dar permisos de ejecución y ejecutar unpack
+    chmod +x /home/weblogic/$UNPACK_FILE
+    bash /home/weblogic/$UNPACK_FILE || {
+        echo "ERROR: Unpack falló en $NODE_IP"
+        exit 1
     }
 
-    # Ejecutar unpack remoto
-    echo "==== Iniciando unpack en $NODE_IP ====" | tee -a $LOG_FILE
-    ssh -o StrictHostKeyChecking=no $NODE_USER@$NODE_IP \
-        "bash -s" < unpack.sh >> "$LOG_FILE" 2>&1 || {
-        echo "ERROR: Unpack falló en $NODE_IP" | tee -a $LOG_FILE
-        return 1
-    }
-
-    echo "==== Nodo $NODE_IP completado exitosamente ====" | tee -a $LOG_FILE
+    echo "Proceso completado en $NODE_IP"
+EOF
 }
 
 echo "Inicio de despliegue: $(date)" | tee -a $LOG_FILE
