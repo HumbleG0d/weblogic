@@ -67,7 +67,7 @@ def execute_rcu():
         rcu_command.extend(['-databasePassword', rcu_props['database.password']])
     
     print("\nEjecutando RCU con los siguientes parámetros:")
-    print(' '.join(rcu_command[:4]) + ' ' + ' '.join(['*' * 8 if 'password' in arg.lower() else arg for arg in rcu_command[4:]])
+    print(' '.join(rcu_command[:4]) + ' ' + ' '.join(['*' * 8 if 'password' in arg.lower() else arg for arg in rcu_command[4:]]))
     
     try:
         # Ejecutar comando RCU
