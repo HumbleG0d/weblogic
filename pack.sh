@@ -1,32 +1,56 @@
 #!/bin/bash
 
-#Variables
-DOMAIN_NAME=PostventaEAI_001
-JAR_FILE_NAME=PostventaEAI_001.jar
-UNPACK_FILE=unpack.sh
+DOMAIN_NAME="PostventaEAI_001"
+JAR_FILE_NAME="PostventaEAI_001.jar"
+UNPACK_FILE="unpack.sh"
 COMMON_DIR="/u01/oracle/product/wls12214/oracle_common/common/bin"
 DOMAIN_DIR="/u01/oracle/domains"
-NODE_USER=
-NODE_IP=
+NODE_USER="weblogic"
+NODE_PASSWORD="weblogic1"  
+LOG_FILE="/var/log/deploy_$(date +%Y%m%d).log"
 
+NODES=("172.17.116.14" "172.17.116.15")
 
-error_acceso_directorio(){
-    echo "Error: ($?) $1"
+if ! command -v sshpass &> /dev/null; then
+    echo "ERROR: sshpass no está instalado. Instálalo con:"
+    echo "  sudo yum install sshpass -y   # Para RHEL/CentOS"
+    echo "  sudo apt-get install sshpass  # Para Ubuntu/Debian"
+    exit 1
+fi
+
+error_acceso_directorio() {
+    echo "Error: ($?) $1" | tee -a $LOG_FILE
     exit 1
 }
 
-echo '===== Iniciando el enpaquetado..... ====='
+run_remote() {
+    local node_ip=$1
+    local command=$2
+    sshpass -p "$NODE_PASSWORD" ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        "$NODE_USER@$node_ip" "$command"
+}
 
-cd "$COMMON_DIR" || error_acceso_directorio
+transfer_file() {
+    local node_ip=$1
+    local src_file=$2
+    local dest_path=$3
+    sshpass -p "$NODE_PASSWORD" scp -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+        "$src_file" "$NODE_USER@$node_ip:$dest_path"
+}
 
-/pack.sh -domain="$DOMAIN_DIR/$DOMAIN_NAME" -template="$DOMAIN_DIR/$JAR_FILE_NAME" -managed=true -template_name="$DOMAIN_NAME"
+echo '===== Iniciando el enpaquetado..... =====' | tee -a $LOG_FILE
+cd "$COMMON_DIR" || error_acceso_directorio "No se pudo acceder a $COMMON_DIR"
 
-echo '==== Copiando el pack generado ====='
+./pack.sh -domain="$DOMAIN_DIR/$DOMAIN_NAME" -template="$DOMAIN_DIR/$JAR_FILE_NAME" \
+    -managed=true -template_name="$DOMAIN_NAME" >> "$LOG_FILE" 2>&1 || {
+    error_acceso_directorio "Falló el pack.sh"
+}
 
-cd "$DOMAIN_DIR" || error_acceso_directorio
-cp "$JAR_FILE_NAME" /home/weblogic
-
-echo '==== Transfiriendo el pack .... ====='
+echo '==== Copiando el pack generado =====' | tee -a $LOG_FILE
+cd "$DOMAIN_DIR" || error_acceso_directorio "No se pudo acceder a $DOMAIN_DIR"
+cp "$JAR_FILE_NAME" "/home/weblogic/" || {
+    error_acceso_directorio "No se pudo copiar $JAR_FILE_NAME"
+}
 
 deploy_to_node() {
     local NODE_IP=$1
@@ -34,49 +58,48 @@ deploy_to_node() {
     echo "[$(date '+%H:%M:%S')] Procesando nodo: $NODE_IP" | tee -a $LOG_FILE
     
     echo "==== Transfiriendo pack al nodo $NODE_IP ====" | tee -a $LOG_FILE
-
-   ssh -tt -o StrictHostKeyChecking=no $NODE_USER@$NODE_IP << EOF
-    echo "Autenticación exitosa en $NODE_IP"
-
-    # Copiando archivos
-    scp -o StrictHostKeyChecking=no "/home/weblogic/$JAR_FILE_NAME" "/home/weblogic/"
-    scp -o StrictHostKeyChecking=no "/home/weblogic/$UNPACK_FILE" "/home/weblogic/"
-
-    # Validar transferencia
-    if [ ! -f "/home/weblogic/$JAR_FILE_NAME" ]; then
-        echo "ERROR: Archivo no llegó a $NODE_IP"
-        exit 1
+    for file in "$JAR_FILE_NAME" "$UNPACK_FILE"; do
+        if ! transfer_file "$NODE_IP" "/home/weblogic/$file" "/home/weblogic/"; then
+            echo "ERROR: Falló transferencia de $file a $NODE_IP" | tee -a $LOG_FILE
+            return 1
+        fi
+    done
+    
+    echo "==== Iniciando unpack en $NODE_IP ====" | tee -a $LOG_FILE
+    if ! run_remote "$NODE_IP" "
+        chmod +x /home/weblogic/$UNPACK_FILE && \
+        cd /home/weblogic && \
+        ./$UNPACK_FILE
+    "; then
+        echo "ERROR: Falló el unpack en $NODE_IP" | tee -a $LOG_FILE
+        return 1
     fi
-
-    # Dar permisos de ejecución y ejecutar unpack
-    chmod +x /home/weblogic/$UNPACK_FILE
-    bash /home/weblogic/$UNPACK_FILE || {
-        echo "ERROR: Unpack falló en $NODE_IP"
-        exit 1
-    }
-
-    echo "Proceso completado en $NODE_IP"
-EOF
+    
+    echo "==== Proceso completado en $NODE_IP ====" | tee -a $LOG_FILE
+    return 0
 }
 
-echo "Inicio de despliegue: $(date)" | tee -a $LOG_FILE
-
 if [ ! -f "/home/weblogic/$JAR_FILE_NAME" ]; then
-    echo "ERROR: El archivo $JAR_FILE_NAME no existe en el Admin" | tee -a $LOG_FILE
-    exit 1
+    error_acceso_directorio "El archivo $JAR_FILE_NAME no existe en /home/weblogic"
 fi
 
-pids=()
+declare -A pids
 for NODE_IP in "${NODES[@]}"; do
     deploy_to_node "$NODE_IP" &
-    pids+=($!)
+    pids["$NODE_IP"]=$!
 done
 
-for pid in "${pids[@]}"; do
-    wait "$pid" || {
-        echo "ALERTA: Al menos un nodo falló" | tee -a $LOG_FILE
-        exit 1
+status=0
+for NODE_IP in "${!pids[@]}"; do
+    wait "${pids[$NODE_IP]}" || {
+        echo "ERROR: Falló el despliegue en $NODE_IP" | tee -a $LOG_FILE
+        status=1
     }
 done
 
-echo "Despliegue completado en TODOS los nodos: $(date)" | tee -a $LOG_FILE
+if [ $status -eq 0 ]; then
+    echo "Despliegue completado exitosamente en TODOS los nodos: $(date)" | tee -a $LOG_FILE
+else
+    echo "ALERTA: Hubo errores en uno o más nodos" | tee -a $LOG_FILE
+    exit 1
+fi
