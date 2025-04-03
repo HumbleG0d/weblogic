@@ -26,6 +26,7 @@ def validate_rcu_properties():
         'database.connectString',
         'database.user',
         'database.password',
+        'rcu.prefix',
         'rcu.components'
     ]
     
@@ -48,23 +49,42 @@ def print_rcu_summary():
         else:
             print(f"{key} => {val}")
 
+def add_tablespace_mapping(rcu_command):
+    tablespaces = {
+        "STB": "OSB1QADB_STB",
+        "OPSS": "OSB1QADB_OPSS",
+        "UMS": "OSB1QADB_UMS",
+        "IAU": "IAU_TBLSP",
+        "IAU_APPEND": "OSB1QADB_IAU_APPEND",
+        "IAU_VIEWER": "OSB1QADB_IAU_VIEWER",
+        "MDS": "OSB1QADB_MDS",
+        "WLS": "OSB1QADB_WLS",
+        "SOAINFRA": "OSB1QADB_SOAINFRA"
+    }
+    
+    for component, tablespace in tablespaces.items():
+        rcu_command.extend(['-componentTablespaceMap', f'{component}:{tablespace}'])
+    
+    return rcu_command 
+
 def execute_rcu():
     rcu_command = [
-        rcu_props.get('rcu.home', '/u01/oracle/product/wls12214/oracle_common/bin/rcu'),
+        rcu_props.get('rcu.home', '/u01/oracle/product/osb12214/oracle_common/bin/rcu'),
         '-silent',
         '-createRepository',
         '-databaseType', rcu_props['database.type'],
         '-connectString', rcu_props['database.connectString'],
         '-dbUser', rcu_props['database.user'],
         '-dbRole', 'SYSDBA',
-        '-schemaPrefix', rcu_props.get('rcu.schema_prefix', 'OSB'),
+        '-schemaPrefix', rcu_props.get('rcu.prefix'),
         '-component', rcu_props['rcu.components'],
         '-f'
     ]
     
-    # Añadir password si existe
     if 'database.password' in rcu_props:
         rcu_command.extend(['-databasePassword', rcu_props['database.password']])
+
+    rcu_command = add_tablespace_mapping(rcu_command)
     
     print("\nEjecutando RCU con los siguientes parámetros:")
     print(' '.join(rcu_command[:4]) + ' ' + ' '.join(['*' * 8 if 'password' in arg.lower() else arg for arg in rcu_command[4:]]))
@@ -82,7 +102,7 @@ def execute_rcu():
             print(f"ERROR en la ejecución de RCU:\n{stderr.decode()}")
             sys.exit(1)
             
-        print("\n RCU ejecutado exitosamente")
+        print("\nRCU ejecutado exitosamente")
         print(stdout.decode())
         
     except Exception as e:
