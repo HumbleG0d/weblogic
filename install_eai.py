@@ -231,8 +231,7 @@ def create_domain():
         
         setOption('OverwriteDomain', 'true')
         setOption('ServerStartMode', 'prod')
-        setOption('AppDir', _dict['approot'] + '/' + _dict['domain_name'])
-        
+        setOption('AppDir', _dict['approot'] + '/' + _dict['domain_name'] + '/applications')
         writeDomain(_dict['domainroot'] + '/' + _dict['domain_name'])
         closeTemplate()
         
