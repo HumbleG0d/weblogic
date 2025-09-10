@@ -7,7 +7,7 @@ LOG_FILE="OSB_Domain.log"
 COMMON_DIR="/u01/oracle/product/osb1214/oracle_common/common/bin"
 JAVA_HOME="/u01/oracle/product/jdk1.8.0_321/"
 DOMAIN_BASE="/filestore"
-ADMIN_URL="t3://172.20.212.159:11000"
+ADMIN_URL=""
 ADMIN_USER="weblogic"
 ADMIN_PASS="weblogic1"
 
